@@ -9,7 +9,9 @@ router.post("/add",controller.addDevice);
 router.post("/register",checkAuth,controller.registerDevice);
 
 
+router.post("/data",controller.addData)
 
+router.get("/bpm",checkAuthWithElder,controller.getHeartData);
 
 
 
