@@ -10,11 +10,11 @@ exports.getConn = pool =>{
 
 
 exports.getOne = (connection,config) =>{
+     // console.log(`SELECT ${config.fields} FROM ${config.tables} ${config.conditions?`WHERE ${config.conditions}`:''}`)
     return new Promise((resolve,reject)=>{
-          
-      connection.query(`SELECT ${config.fields} FROM ${config.tables} WHERE ${config.conditions}`,config.values,(error,result)=>{
-            if(error) reject(error)
-            resolve(result);
+      connection.query(`SELECT ${config.fields} FROM ${config.tables} ${config.conditions?`WHERE ${config.conditions}`:''}`,config.values,(error,data)=>{
+            if(error) {console.log(error);reject(error)};
+            resolve(data);
            });
     })
 }

@@ -1,13 +1,23 @@
+require("dotenv").config();
+const path = require("path")
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
-const { InternalServerError } = require("./Errors");
-require("dotenv").config();
+const multer  = require("multer");
+const PDFDocumnet = require("pdfkit");
+const fs =  require("fs");
 const { OAuth2Client } = require("google-auth-library");
 const client = new OAuth2Client(process.env.CLIENT_ID);
+const aws = require('aws-sdk');
+const s3 = new aws.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+})
+const schedule = require('node-schedule');
+const Tclient = require('../../config/twilio')
 
-
-
-
+const { InternalServerError } = require("./errors");
+const pool = require("../../config/db");
+const { getConn, getOne, updateOne } = require("../../db");
 
 
 exports.generateToken = (user)=>{
@@ -36,6 +46,212 @@ exports.verifyAccessToken = (token)=>{
     idToken: token,
     audience: process.env.CLIENT_ID,
 });
+}
+
+exports.uploadMultiple = (no,name)=>{
+  
+  const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+  
+      cb(null,path.join(__dirname,'../uploads'))
+    },
+    filename: function (req, file, cb) {
+
+      cb(null, new Date().getTime()+file.originalname)
+    }
+  })
+
+  const upload = multer({
+    storage,
+    fileFilter: (req,file,cb)=>{
+
+        if(file.mimetype==='image/jpeg' || file.mimetype==='image/png' ||file.mimetype==='image/jpg'){
+           cb(null,true);
+        }
+        else{
+          cb("We don't support this file format");
+        }
+       
+    }
+  })
+
+  return upload.array(name,no);
+}
+
+
+// exports.uploadToS3 = (Key,path)=>{
+//   return new Promise((resolve,reject)=>{
+//     console.log("in s3: ",path)
+//       fs.readFile(path,(err,data)=>{
+//         if(err) reject(err)
+
+//       });
+//     })
+// }
+
+
+
+exports.makePDFAndUpload = (array)=>{
+  return new Promise((resolve,reject)=>{
+     //doc object
+     const doc = new PDFDocumnet();
+     // piping out the data of doc to some file
+     const pathToFolder = path.join(__dirname,'../uploads/pdf');
+     const name = 'report'+new Date().getTime()+'.pdf';
+     const path2=path.join(pathToFolder,'/'+name);
+     doc.pipe(fs.createWriteStream(path2));
+   
+     //adding an image
+       doc.image(array[0],{
+         fit:[500,700],
+         align:'left',
+         valign:'center'
+       })
+       array.slice(1).forEach(a=>{
+         doc.addPage();
+         doc.image(a,{
+           fit:[500,700],
+           align:'left',
+           valign:'center'
+         })
+       })
+       doc.end();
+       let params = {Key:'pdf/'+name,Body:doc,Bucket:process.env.BUCKET,ACL:'public-read',contentType : 'application/pdf'}
+       s3.upload(params, function(s3Err, data) {
+         if (s3Err) reject(s3Err)
+         resolve([path2,data.Location]);
+       });
+
+  })
+}
+
+exports.deleteFiles = (array)=>{
+ return new Promise((resolve,reject)=>{
+  array.forEach(a=>{
+    fs.unlink(a, (err) => {
+      if (err) {
+        reject(err)
+      }
+  })
+ })
+ resolve(1)
+});
+}
+
+exports.sendTimeWithOffsets = async()=>{
+  try{
+    const connection = await getConn(pool);
+    try{
+      const result = await getOne(connection,{
+        tables:'timezones',
+        fields:'timezone, toffset',
+        conditions:'',
+        values:[]
+      })
+      // console.log("calleddfasdfas")
+      // console.log("result: ",result)
+      let obj = {};
+      for(let i=0;i<=result.length-1;i++){
+        obj[result[i].timezone]=result[i].toffset
+      }
+      return obj
+    }finally{
+      pool.releaseConnection(connection)
+    }
+}catch(e){
+     console.log(e);
+}
+}
+
+exports.getTime = (a)=>{
+  const slots = [{start:0,end:1},{start:1,end:2},{start:2,end:3},{start:3,end:4},{start:4,end:5},{start:5,end:6},{start:6,end:7},{start:7,end:8},{start:8,end:9},{start:9,end:10},{start:10,end:11},{start:11,end:12},{start:12,end:13},{start:13,end:14},{start:14,end:15},{start:15,end:16},{start:16,end:17},{start:17,end:18},{start:18,end:19},{start:19,end:20},{start:20,end:21},{start:21,end:22},{start:22,end:23},{start:23,end:24}]
+
+  return slots[a];
+}
+
+exports.getDaySlot = (a)=>{
+  const days = {"Sunday":0,"Monday":1,"Tuesday":2,"Wednesday":3,"Thursday":4,"Friday":5,"Saturday":6}
+  return days[a];
+}
+
+exports.callPLay=async (to,url)=>{
+ return new Promise((req,res)=>{
+  Tclient.calls
+  .create({
+     twiml: '<Response><Play loop="1">'+url.strip()+'</Play></Response>',
+     to: to,
+     from: process.env.TWILIO_NO
+   })
+  .then(call => {console.log(call.sid);resolve(call.sid)});
+ })
+}
+
+exports.callSay=async (to,text)=>{
+  return new Promise((resolve,reject)=>{
+    Tclient.calls
+      .create({
+         twiml: '<Response><Say voice="alice">'+text+'.'+text+'</Say></Response>',
+         to: to,
+         from: process.env.TWILIO_NO
+       })
+      .then(call => {console.log(call.sid);resolve(call.sid)});
+  })
+}
+
+
+exports.takeInput=async (to,text)=>{
+  Tclient.calls
+      .create({
+         twiml: '<Response><Say voice="alice">'+text+'</Say></Response>',
+         to: to,
+         from: process.env.TWILIO_NO
+       })
+      .then(call => console.log(call.sid));
+}
+exports.scheduler = async (timezones)=>{
+  try{
+    const connection = await getConn(pool);
+    try{
+      console.log("out")
+      let data,date;
+      const job = schedule.scheduleJob('* */5 * * * *',async  function(){
+        console.log("in")
+        date = new Date();
+        console.log(date)
+        timeslot = date.getHours()
+        data= await getOne(connection,{
+          tables:`(select id as logId, remComId,reminderLogs.status,triedTimes,checkLast
+            from reminderLogs where reminderLogs.status='upcoming')
+             as first natural join 
+            (select id as remComId,remId,daySlot,timeSlot from reminderCombination where timeSlot=? and daySlot=?)
+            as second natural join (select id as remId,elderId,ctype,voice_mem,text_mem,sugar_lvl,rtype from reminder where activity=1) 
+            as third natural join (select id as elderId,concat('+',country_code,mobileno) as mobile from elder) as fourth;`,
+          fields:'*',
+          conditions:'',
+          values:[timeslot,date.getHours()]
+        })
+        console.log(data)
+        for(let i=0;i<=data.length-1;i++){
+          let check=false;
+            // if(data[i].ctype){
+                switch(ctype){
+                  case 1:
+                    await callSay(data[i].mobile,data[i].text_mem)
+                    break;
+                  case 0:
+                    await playSay(data[i].mobile,data[o].voice_mem)
+                    break
+                }
+              }
+            // }else{
+            //   //sugar checking code
+            });
+    }finally{
+      pool.releaseConnection(connection)
+    }
+}catch(e){
+
+}
 }
 
 

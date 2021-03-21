@@ -10,5 +10,8 @@ router.get("/countryCodes",controller.countryCodes);
 
 
 
+router.get("/twilioConfig/reminder/:id",controller.reminderRoute);
+
+router.post("/twilioConfig/emergency",controller.emergencyRoute);
 
 module.exports = router;

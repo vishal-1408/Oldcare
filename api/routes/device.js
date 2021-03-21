@@ -13,6 +13,13 @@ router.post("/data",controller.addData)
 
 router.get("/bpm",checkAuthWithElder,controller.getHeartData);
 
+router.post("/steps",checkAuthWithElder,controller.getStepsData);
+
+router.post("/emergency",controller.emergency);
+
+router.post("/addSugarlvl",controller.addSugarLevel);
+
+router.get("/sugarlvl",checkAuthWithElder,controller.getSugarLevels);
 
 
 

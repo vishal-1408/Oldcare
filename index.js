@@ -9,8 +9,18 @@ const authRoutes = require("./api/routes/auth");
 const deviceRoutes = require("./api/routes/device");
 const elderRoutes = require("./api/routes/elder");
 const generalRoutes = require("./api/routes/general");
+const reportRoutes = require("./api/routes/reports");
+const {sendTimeWithOffsets,scheduler} = require("./api/utils");
 
 dotenv.config();
+sendTimeWithOffsets()
+.then(async data=>{
+  await scheduler(data);
+})
+.catch(e=>{
+  console.log(e);
+})
+
 
 
 
@@ -45,6 +55,7 @@ app.use("/auth",authRoutes);
 app.use("/device",deviceRoutes)
 app.use("/elder",elderRoutes);
 app.use("/general",generalRoutes);
+app.use("/report",reportRoutes);
 app.use("/*",(req,res)=>{
     res.status(404).json({
       error:"page not found!!"

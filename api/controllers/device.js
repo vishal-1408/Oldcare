@@ -161,7 +161,35 @@ exports.addData = async (req,res)=>{
         }
     }
 }
+exports.getStepsData = async (req,res)=>{
+    try{
+        const connection = await getConn(pool);
+        try{
+              const {date,option} = req.body;
+              if(!date || !option) throw new BadRequest("REQUIRED FIELDS NOT PROVIDED");
+              let data=await getData(connection,'footsteps',date,option,req.user.elder.id,req.user.elder.timezone,"steps")
 
+            res.status(200).send({
+                data
+            })
+
+        }finally{
+            pool.releaseConnection(connection);
+        }
+    }catch(e){
+        console.log(e);
+        if (e.status) {
+            res.status(e.status).json({
+                error: e.message,
+            });
+        } else {
+            console.log(e);
+            res.status(500).json({
+                error: e.toString(),
+            });
+        }
+    }
+}
 exports.getHeartData = async (req,res)=>{
     try{
         const connection = await getConn(pool);
@@ -192,6 +220,138 @@ exports.getHeartData = async (req,res)=>{
 }
 
 
+exports.emergency = async (req,res)=>{
+    try{
+        const connection = await getConn(pool);
+        try{
+              const {deviceToken} = req.body;
+              if(!deviceToken) throw new BadRequest("REQUIRED FIELDS NOT PROVIDED");
+            
+              //get list of caretakers with numbers
+               const caretakers = await getOne(connection,{
+                   tables:`careTakers inner join (select id as elderId,elder.name from elder) as first natural join 
+                   (select id as device_id from device where token='cee28af31726') as second
+                   `,
+                   fields:'careTakers.*,first.name',
+                   conditions:'careTakers.elderId=first.elderId',
+                   values:[deviceToken]
+               })
+               console.log(caretakers)
+               for(let i=0;i<=caretakers.length-1;i++){
+                   console.log('+'+caretakers[i].country_code+''+caretakers[i].mobileno,caretakers[0].name+' is having an emergency!! please help!')
+                   await callSay('+'+caretakers[i].country_code+''+caretakers[i].mobileno,caretakers[0].name+' is having an emergency!! please help!')
+               }
+
+
+               //fcm nofitficatin!!!
+
+
+
+
+
+               //////
+            res.status(200).send({
+                
+            })
+
+        }finally{
+            pool.releaseConnection(connection);
+        }
+    }catch(e){
+        console.log(e);
+        if (e.status) {
+            res.status(e.status).json({
+                error: e.message,
+            });
+        } else {
+            console.log(e);
+            res.status(500).json({
+                error: e.toString(),
+            });
+        }
+    }
+}
+
+
+exports.addSugarLevel = async(req,res)=>{
+    try{
+        const connection = await getConn(pool);
+        try{
+            const {Digits,To} = req.body;
+            const result = await getOne(connection,{
+                tables:'elder',
+                fields:'id',
+                conditions:"concat(concat('+'+country_code),mobileno)=?",
+                values:[To.slice(1)]
+            })
+        
+            await insertOne(connection,{
+                table:'sugarLvl',
+                data:{
+                   elderId:result[0].id,
+                   level:Digits
+                }
+            })
+            res.set('Content-Type', 'text/xml');
+            res.status(200).send("<Response><Say>Thank You for the Input!</Say></Response>")
+
+        }finally{
+            pool.releaseConnection(connection);
+        }
+    }catch(e){
+        console.log(e);
+        if (e.status) {
+            res.status(e.status).json({
+                error: e.message,
+            });
+        } else {
+            console.log(e);
+            res.status(500).json({
+                error: e.toString(),
+            });
+        }
+    }
+}
+
+
+
+
+
+
+
+
+exports.getSugarLevels =async (req,res)=>{
+    try{
+        const connection = await getConn(pool);
+        try{
+            const result=await getOne(connection,{
+                tables:'sugarLvl',
+                fields:'*',
+                conditions:'elderId=?',
+                values:[req.user.elder.id]
+            })
+
+            res.status(200).send({
+                levels:result
+            })
+
+        }finally{
+            pool.releaseConnection(connection);
+        }
+    }catch(e){
+        console.log(e);
+        if (e.status) {
+            res.status(e.status).json({
+                error: e.message,
+            });
+        } else {
+            console.log(e);
+            res.status(500).json({
+                error: e.toString(),
+            });
+        }
+    }
+}
 
 async function getData(connection,table,date,option,elderId,timezone,data){
     let result = [];
